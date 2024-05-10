@@ -1,6 +1,6 @@
 # ISY-503-A3-Computer-Vision
 
-Assessment 3 Project for ISY-503 Intelligent Systems subject.
+Assessment 3 Final Project for __ISY-503 - Intelligent Systems__ subject.
 
 ## Overview
 Tasked of building a machine learning model that is trained on the data provided and when run on the simulator, will hopefully keep the car on the road without running off track. 
@@ -37,6 +37,6 @@ python drive.py model.h5
 
 ## Challenges
 Some of the challenges encountered were:
-* Model yielded decent accuracy and performance overall with the dataset provided, but performed poorly when integrated with the simulator.
+* Model yielded decent accuracy and performance overall with the dataset provided, but performed poorly when running the model to the simulator.
 * Had to rework model to accommodate its integration to the simulator.
 * Setting up of the environment, mostly due to package versions.

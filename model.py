@@ -265,7 +265,6 @@ Uses the `Adam` optimiser and the `mean_squared_error` loss function. Metrics is
 
 model.compile(
     optimizer=tf.keras.optimizers.Adam(learning_rate=0.0001),
-    # optimizer=tf.keras.optimizers.Adam(learning_rate=1.0e-4),
     loss="mean_squared_error",
     metrics=["accuracy"]
 )
