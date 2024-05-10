@@ -14,6 +14,7 @@ Include the necessary packages to import and install.
 
 !pip install patool
 !pip install split-folders
+!pip install pyyaml h5py
 
 # TensorFlow and tf.keras
 import tensorflow as tf
@@ -37,7 +38,11 @@ Constant values defined to be used all throughout the process.
 ## Constants
 
 # Shape of the image items
-IMG_SHAPE = (80, 45)
+IMG_SHAPE = (66, 200)
+# Shape of input for model
+INPUT_SHAPE = (66, 200, 3)
+# Exported model filename
+MODEL_FILENAME = "model.h5"
 # Used for shuffling and transformation of values
 SEED = 123
 
@@ -69,23 +74,6 @@ def load_image_dataset(dir, subset=None, shuffle=True):
         image_size=IMG_SHAPE
     )
 
-def get_dataset_from_url(url):
-    """Get the training, validation, and testing datasets from given URL."""
-    # Download from URL and retrieve path
-    archive = tf.keras.utils.get_file(origin=url, extract=True)
-    data_dir = pathlib.Path(archive).with_suffix('')
-
-    # Prepare training and validation datasets
-    train_ds = load_image_dataset(data_dir, "training")
-    val_ds = load_image_dataset(data_dir, "validation")
-
-    # Prepare testing datasets
-    val_batches = val_ds.cardinality()
-    test_ds = val_ds.take(val_batches // 5)
-    val_ds = val_ds.skip(val_batches // 5)
-
-    return (train_ds, val_ds, test_ds)
-
 def get_datasets_from_session(path):
     """Get the training, validation, and testing datasets from
     a storage session path in Colab."""
@@ -101,7 +89,8 @@ def get_datasets_from_session(path):
         path,
         output=base_dir,
         seed=SEED,
-        ratio=(.7, .18, .12)
+        # ratio=(.7, .18, .12)
+        ratio=(.8, .1, .1)
     )
 
     # Load dataset from Colab session storage directory
@@ -236,57 +225,65 @@ train_ds = train_ds.map(lambda x, y: (normalization_layer(x), y))
 val_ds = val_ds.map(lambda x, y: (normalization_layer(x), y))
 test_ds = test_ds.map(lambda x, y: (normalization_layer(x), y))
 
-"""### Data Augmentation
-Used to increase the diversity of your training set by applying random, but realistic, transformations, such as image rotation. Since the datasets have normalised orientations (e.g. *horizontally flipping a left image will result to a right one*), the only applicable augmentations are for altering image brightness, contrast, etc. Data augmentation can be embedded within the model using one of the readiliy available `layers` More details can be found [here](https://www.tensorflow.org/tutorials/images/data_augmentation).
-"""
-
-data_augmentation = tf.keras.Sequential([
-    tf.keras.layers.RandomContrast(0.1),
-])
-
 """## Model
-The model consists of three convolution blocks and max pooling layers. Resizing and dropout layers wera also added to improve model performance. Based on [tutorial](https://www.tensorflow.org/tutorials/load_data/images#train_a_model).
+The model mainly consists of 5 convolution blocks. Based on the [NVIDIA model](https://github.com/naokishibuya/car-behavioral-cloning).
 """
 
-model = tf.keras.Sequential([
-    data_augmentation,
-    # Taken from https://www.tensorflow.org/tutorials/images/data_augmentation#resizing_and_rescaling
-    tf.keras.layers.Resizing(IMG_SHAPE[0], IMG_SHAPE[1]),
-    tf.keras.layers.Conv2D(32, 3, activation="relu"),
-    tf.keras.layers.MaxPooling2D(),
-    tf.keras.layers.Conv2D(64, 3, activation="relu"),
-    tf.keras.layers.MaxPooling2D(),
-    tf.keras.layers.Conv2D(128, 3, activation="relu"),
-    tf.keras.layers.MaxPooling2D(),
-    # Taken from https://www.tensorflow.org/tutorials/images/classification#dropout
-    tf.keras.layers.Dropout(0.1),
-    tf.keras.layers.Flatten(),
-    tf.keras.layers.Dense(128, activation="relu"),
-    tf.keras.layers.Dense(NUM_CLASSES)
-])
+def nvidia_model():
+    """Model created based on NVIDIA model as stated in their
+    End-to-End Deep Learning for Self-Driving Cars article.
+    See https://developer.nvidia.com/blog/deep-learning-self-driving-cars/."""
+    model = tf.keras.Sequential()
+
+    # Normalise input images
+    model.add(tf.keras.layers.Lambda(lambda x: x / 127.5 - 1.0, input_shape=INPUT_SHAPE))
+
+    # Convolutional layer
+    model.add(tf.keras.layers.Conv2D(24, 5, activation='elu', strides=(2, 2)))
+    model.add(tf.keras.layers.Conv2D(36, 5, activation='elu', strides=(2, 2)))
+    model.add(tf.keras.layers.Conv2D(48, 5, activation='elu', strides=(2, 2)))
+    model.add(tf.keras.layers.Conv2D(64, 3, activation='elu'))
+    model.add(tf.keras.layers.Conv2D(64, 3, activation='elu'))
+    model.add(tf.keras.layers.Dropout(0.3))
+    model.add(tf.keras.layers.Flatten())
+    model.add(tf.keras.layers.Dense(100, activation='elu'))
+    model.add(tf.keras.layers.Dense(50, activation='elu'))
+    model.add(tf.keras.layers.Dense(10, activation='elu'))
+    model.add(tf.keras.layers.Dense(1))
+
+    return model
+
+# Remove exported model in preparation of saving new instance
+if os.path.exists(MODEL_FILENAME):
+    os.remove(MODEL_FILENAME)
+
+model = nvidia_model()
 
 """### Compilation
-Uses the `Adam` optimiser and the `SparseCategoricalCrossentropy` loss function. Metrics is set to `accuracy` to view its training and validation accuracy for each epoch pass.
+Uses the `Adam` optimiser and the `mean_squared_error` loss function. Metrics is set to `accuracy` to view its training and validation accuracy for each epoch pass.
 """
 
 model.compile(
-    optimizer="adam",
-    loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
+    optimizer=tf.keras.optimizers.Adam(learning_rate=0.0001),
+    # optimizer=tf.keras.optimizers.Adam(learning_rate=1.0e-4),
+    loss="mean_squared_error",
     metrics=["accuracy"]
 )
 
 """### Training
-Model is now trained. Its history will be stored for plotting.
+Model is now trained. Its history will be stored for plotting. Added an `EarlyStopping` callback to prevent overfitting.
 
 """
 
 # Number of epochs for training
-EPOCHS = 10
+EPOCHS = 100
 
+callback = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=5)
 history = model.fit(
     train_ds,
     validation_data=val_ds,
-    epochs=EPOCHS
+    epochs=EPOCHS,
+    callbacks=[callback]
 )
 
 """#### Visualise Results
@@ -302,8 +299,9 @@ def visualise_history(history, epochs):
 
     loss = history.history["loss"]
     val_loss = history.history["val_loss"]
+    num_epochs = len(loss)
 
-    epochs_range = range(epochs)
+    epochs_range = range(min(num_epochs, epochs))
 
     plt.figure(figsize=(8, 8))
     plt.subplot(1, 2, 1)
@@ -352,8 +350,6 @@ def plot_prediction(i, predictions, sample):
     plt.figure(figsize=(6, 3))
     plt.subplot(1, 2, 1)
     plot_image(sample, prediction_details)
-    plt.subplot(1, 2, 2)
-    plot_value_array(i, predictions, sample)
     plt.show()
 
 def plot_image(sample, prediction_details):
@@ -418,7 +414,5 @@ for i in range(0, length):
 
 Save model in preparation for loading into the Car Driving simulator. See [link](https://www.tensorflow.org/tutorials/keras/save_and_load) for details on saving and loading models.
 """
-
-!pip install pyyaml h5py
 
 model.save("model.h5")

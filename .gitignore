@@ -1,5 +1,6 @@
 __pycache__
 .DS_Store
-run/
+video/
 _requirements.txt
-
+test_model.h5
+run.sh
